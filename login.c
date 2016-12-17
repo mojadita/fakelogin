@@ -62,7 +62,7 @@ char *vprompt(char *buffer, size_t sz, int flags, const char *fmt, va_list args)
     struct termios saved_tty;
     ssize_t n_read;
 
-	/* print the prompt and flush buffers */
+    /* print the prompt and flush buffers */
     vprintf(fmt, args); fflush(stdout);
 
     if (flags & FLAG_RAW) {
@@ -180,11 +180,11 @@ int main(int argc, char **argv)
         if (++i >= N_TRIES) break;
 
 	/* write message to user */
-	fprintf(stderr, "Permission denied, please try again\n");
+	printf("Permission denied, please try again\n");
     } /* loop */
 
     /* final message */
-    fprintf(stderr, "Permission denied (publickey,password)\n");
+    printf("Permission denied (publickey,password)\n");
 
     if (out) {
 	/* if we have a save file */
